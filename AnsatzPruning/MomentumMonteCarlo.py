@@ -19,7 +19,7 @@ from MomentumBuilder import momen_layer
 from Utilities import *
 
 
-def momentum_monte_carlo(params:list, inds:list, ansatz:QuantumCircuit,
+def momentum_sa_phased(params:list, inds:list, ansatz:QuantumCircuit,
                          circuit:QuantumCircuit, hamiltonian:SparsePauliOp,
                          estimator:Estimator, beta1:float, beta2:float,
                          iters:int=2, optimization_runs:int=100):
@@ -92,55 +92,45 @@ def momentum_sa_merged(params:list, inds:list, ansatz:QuantumCircuit,
                          estimator:Estimator, beta1:float, beta2:float,
                          iters:int=2, optimization_runs:int=100):
     """
-    Ansatz optimization pipeline that runs simulated annealing at 
-    every layer as MomentumBuilder is running.
+    Ansatz optimization pipeline that constructs every layer using
+    momentum and optimizes the layer's parameters using simulated annealing.
     """
     num_qubits = circuit.num_qubits
+    observables = [*hamiltonian.paulis, hamiltonian]
     M = np.zeros((len(params))) # Momentum
     currCirc = QuantumCircuit(num_qubits)
     currCirc = currCirc.compose(ansatz)
 
     for iter in range(iters):
-        # Run simulated annealing to optimize params
-        observables = [*hamiltonian.paulis, hamiltonian]
-        simulator = AerSimulator(method='statevector')
-        sa_params = MonteCarlo.simulated_annealing(
-            optimization_runs, params, currCirc, simulator, observables, estimator
-        )
-        # print(sa_params)
-        
         # Calculate momentum
         accumulator = []
-        for i in range(len(sa_params)):
-            # print(f"gradi = {abs(gradi(i, sa_params, currCirc, hamiltonian, estimator))}")
-            # grad_i = abs(gradi(i, sa_params, currCirc, hamiltonian, estimator)[len(hamiltonian)-1]).item()
-            grad_i = gradi(i, sa_params, currCirc, hamiltonian, estimator)
+        for i in range(len(params)):
+            grad_i = abs(gradi(i, params, currCirc, hamiltonian, estimator)).item()
             M[i] = beta1 * M[i] + (1-beta1) * grad_i
-            # print(f"M[i] = {M[i]}")
-            # print(f"accumulator = {accumulator}")
-            # print(f"inds[i] = {inds[i]}\n")
             heapq.heappush(accumulator, (M[i], inds[i]))
 
-        # Construct momentum layer
-        # print(f"accumulator after: {accumulator}")
-        # print(f"num_qubits = {num_qubits}")
-        mLayer, nparams, ninds = momen_layer(iter, num_qubits, accumulator)
-        # print(f"sa_params = {sa_params}")
-        # print(f"nparams = {nparams}")
-        # print(f"inds = {inds}")
-        # print(f"ninds = {ninds}")
-        params = params + nparams
-        inds = inds + ninds
-        M = np.concatenate((M, len(nparams)*[0]))
-        ansatz = ansatz.compose(mLayer)
+        # Construct momentum layer and append it to circuit
+        momentum_layer, new_params, new_inds = momen_layer(iter, num_qubits, accumulator)
+        params = params + new_params
+        inds = inds + new_inds
+        M = np.concatenate((M, len(new_params)*[0]))
+        ansatz = ansatz.compose(momentum_layer)
         currCirc = circuit.compose(ansatz)
 
-    circuit = circuit.compose(ansatz)
-    cost_final = cost_func(params, circuit, observables, estimator)
+        # Run simulated annealing to optimize params
+        simulator = AerSimulator(method='statevector')
+        sa_params = MonteCarlo.simulated_annealing(
+            optimization_runs, np.array(params), currCirc, simulator, observables, estimator
+        )
+        params = list(sa_params)
+        # print(sa_params)
+
+    # circuit = circuit.compose(ansatz)
+    cost_final = cost_func(params, currCirc, observables, estimator)
     energy_final = cost_final[-1] # Last element in the list is the energy
     print("Energy after merged MB and SA: ", energy_final)
     
-    return circuit
+    return currCirc
 
 
 if __name__ == "__main__":
@@ -162,18 +152,20 @@ if __name__ == "__main__":
     # ansatz.draw(output="mpl")
 
     # Run MomentumBuilder for comparison
-    # observables = [*H.paulis,H]
-    # final_circuit_MB = MomentumBuilder.MomentumBuilder([1,1,1,1], [0,1,2,3], ansatz, circuit, observables, Estimator(), 0.9, 0.99)
-    # final_circuit_MB.draw(output="mpl")
+    observables = [*H.paulis,H]
+    final_circuit_MB = MomentumBuilder.MomentumBuilder([1,1,1,1], [0,1,2,3], ansatz, circuit, observables, Estimator(), 0.9, 0.99)
+    final_circuit_MB.draw(output="mpl")
 
-    final_circuit_MMC, final_params = momentum_monte_carlo([1,1,1,1], [0,1,2,3], ansatz, circuit, H, Estimator(),
-        beta1=0.9, beta2=0.99, iters=2, optimization_runs=100
-    )
-    final_circuit_MSA = momentum_sa_merged([1,1,1,1], [0,1,2,3], ansatz, circuit, H, Estimator(),
+    final_circuit_MMC, final_params = momentum_sa_phased([1,1,1,1], [0,1,2,3], ansatz, circuit, H, Estimator(),
         beta1=0.9, beta2=0.99, iters=2, optimization_runs=100
     )
     final_circuit_MMC.draw(output="mpl")
+
+    final_circuit_MSA = momentum_sa_merged([1,1,1,1], [0,1,2,3], ansatz, circuit, H, Estimator(),
+        beta1=0.9, beta2=0.99, iters=2, optimization_runs=100
+    )
+    final_circuit_MSA.draw(output="mpl")
     
     # print(f"Optimization complete. Final parameters: {final_params}")
-    # plt.show()
+    plt.show()
 

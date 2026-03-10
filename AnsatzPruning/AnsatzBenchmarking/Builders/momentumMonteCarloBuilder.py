@@ -4,7 +4,7 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.primitives import StatevectorEstimator
 
-from MomentumMonteCarlo import momentum_monte_carlo as mb
+from MomentumMonteCarlo import momentum_sa_phased as mb
 
 class MonteCarloMomentumBuilder(AnsatzBuilder):
     def build(self):
