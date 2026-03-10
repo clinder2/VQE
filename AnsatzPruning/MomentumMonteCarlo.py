@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+import heapq
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import math
@@ -14,9 +15,11 @@ from Optimization import MonteCarlo
 from AnsatzPruning import MomentumBuilder
 from AnsatzPruning.Utilities import cost_func
 from qiskit.circuit import Parameter
+from MomentumBuilder import momen_layer
+from Utilities import *
 
 
-def momentum_monte_carlo(params:list, inds:list, ansatz:QuantumCircuit,
+def momentum_sa_phased(params:list, inds:list, ansatz:QuantumCircuit,
                          circuit:QuantumCircuit, hamiltonian:SparsePauliOp,
                          estimator:Estimator, beta1:float, beta2:float,
                          iters:int=2, optimization_runs:int=100):
@@ -84,6 +87,51 @@ def momentum_monte_carlo(params:list, inds:list, ansatz:QuantumCircuit,
     
     return optimized_ansatz, optimized_params
 
+def momentum_sa_merged(params:list, inds:list, ansatz:QuantumCircuit,
+                         circuit:QuantumCircuit, hamiltonian:SparsePauliOp,
+                         estimator:Estimator, beta1:float, beta2:float,
+                         iters:int=2, optimization_runs:int=100):
+    """
+    Ansatz optimization pipeline that constructs every layer using
+    momentum and optimizes the layer's parameters using simulated annealing.
+    """
+    num_qubits = circuit.num_qubits
+    observables = [*hamiltonian.paulis, hamiltonian]
+    M = np.zeros((len(params))) # Momentum
+    currCirc = QuantumCircuit(num_qubits)
+    currCirc = currCirc.compose(ansatz)
+
+    for iter in range(iters):
+        # Calculate momentum
+        accumulator = []
+        for i in range(len(params)):
+            grad_i = abs(gradi(i, params, currCirc, hamiltonian, estimator)).item()
+            M[i] = beta1 * M[i] + (1-beta1) * grad_i
+            heapq.heappush(accumulator, (M[i], inds[i]))
+
+        # Construct momentum layer and append it to circuit
+        momentum_layer, new_params, new_inds = momen_layer(iter, num_qubits, accumulator)
+        params = params + new_params
+        inds = inds + new_inds
+        M = np.concatenate((M, len(new_params)*[0]))
+        ansatz = ansatz.compose(momentum_layer)
+        currCirc = circuit.compose(ansatz)
+
+        # Run simulated annealing to optimize params
+        simulator = AerSimulator(method='statevector')
+        sa_params = MonteCarlo.simulated_annealing(
+            optimization_runs, np.array(params), currCirc, simulator, observables, estimator
+        )
+        params = list(sa_params)
+        # print(sa_params)
+
+    circuit = circuit.compose(ansatz)
+    cost_final = cost_func(params, circuit, observables, estimator)
+    energy_final = cost_final[-1] # Last element in the list is the energy
+    print("Energy after merged MB and SA: ", energy_final)
+    
+    return circuit
+
 
 if __name__ == "__main__":
     H = SparsePauliOp.from_list([("ZIZZ", 1), ("ZZII", 3), ("IZZI", 1), ("IIZZ", 1)])
@@ -104,14 +152,19 @@ if __name__ == "__main__":
     # ansatz.draw(output="mpl")
 
     # Run MomentumBuilder for comparison
-    # observables = [*H.paulis,H]
-    # final_circuit_MB = MomentumBuilder.MomentumBuilder([1,1,1,1], [0,1,2,3], ansatz, circuit, observables, Estimator(), 0.9, 0.99)
-    # final_circuit_MB.draw(output="mpl")
+    observables = [*H.paulis,H]
+    final_circuit_MB = MomentumBuilder.MomentumBuilder([1,1,1,1], [0,1,2,3], ansatz, circuit, observables, Estimator(), 0.9, 0.99)
+    final_circuit_MB.draw(output="mpl")
 
-    final_circuit_MMC, final_params = momentum_monte_carlo([1,1,1,1], [0,1,2,3], ansatz, circuit, H, Estimator(),
+    final_circuit_MMC, final_params = momentum_sa_phased([1,1,1,1], [0,1,2,3], ansatz, circuit, H, Estimator(),
         beta1=0.9, beta2=0.99, iters=2, optimization_runs=100
     )
     final_circuit_MMC.draw(output="mpl")
+
+    final_circuit_MSA = momentum_sa_merged([1,1,1,1], [0,1,2,3], ansatz, circuit, H, Estimator(),
+        beta1=0.9, beta2=0.99, iters=2, optimization_runs=100
+    )
+    final_circuit_MSA.draw(output="mpl")
     
     # print(f"Optimization complete. Final parameters: {final_params}")
     # plt.show()

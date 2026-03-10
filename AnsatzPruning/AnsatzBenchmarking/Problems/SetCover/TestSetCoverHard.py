@@ -70,7 +70,7 @@ def test_set_cover_hard():
     print("=" * 60)
     
     # Increased optimization runs for the harder problem
-    optimized_ansatz, optimized_params = MomentumMonteCarlo.momentum_monte_carlo(
+    optimized_ansatz, optimized_params = MomentumMonteCarlo.momentum_sa_phased(
         initial_params_values, indices, ansatz, circuit, H, estimator,
         beta1=0.9, beta2=0.99, iters=3, optimization_runs=500, method='simulated_annealing'
     )

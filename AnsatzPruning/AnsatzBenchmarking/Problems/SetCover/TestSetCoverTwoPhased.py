@@ -55,7 +55,7 @@ def test_set_cover_two_phased():
     print("=" * 60)
     
     # optimization_runs=200 for better convergence
-    optimized_ansatz, optimized_params = MomentumMonteCarlo.momentum_monte_carlo(
+    optimized_ansatz, optimized_params = MomentumMonteCarlo.momentum_sa(
         params, inds, ansatz, circuit, H, estimator,
         beta1=0.9, beta2=0.99, iters=3, optimization_runs=200, method='simulated_annealing'
     )
