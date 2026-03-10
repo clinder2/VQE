@@ -125,12 +125,12 @@ def momentum_sa_merged(params:list, inds:list, ansatz:QuantumCircuit,
         params = list(sa_params)
         # print(sa_params)
 
-    # circuit = circuit.compose(ansatz)
-    cost_final = cost_func(params, currCirc, observables, estimator)
+    circuit = circuit.compose(ansatz)
+    cost_final = cost_func(params, circuit, observables, estimator)
     energy_final = cost_final[-1] # Last element in the list is the energy
     print("Energy after merged MB and SA: ", energy_final)
     
-    return currCirc
+    return circuit
 
 
 if __name__ == "__main__":
@@ -167,5 +167,5 @@ if __name__ == "__main__":
     final_circuit_MSA.draw(output="mpl")
     
     # print(f"Optimization complete. Final parameters: {final_params}")
-    plt.show()
+    # plt.show()
 
