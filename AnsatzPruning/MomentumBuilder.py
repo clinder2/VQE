@@ -16,7 +16,6 @@ def momen_layer(it:int, n:int, momentum:list, radius:int=1, keep:int=2):
     inds=[]
     for i in range(keep):
         m_val, ind = heapq.heappop(momentum)
-        # ind=momentum[i][1]
         angle = Parameter("it-"+str(it)+", "+str(i))
         params.append(1)
         inds.append(ind)
