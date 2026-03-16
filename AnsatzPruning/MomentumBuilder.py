@@ -45,7 +45,7 @@ def MomentumBuilder(params:list, inds:list, ansatz:QuantumCircuit,
             #print(gradi(i,params,circuit,hamiltonian,estimator))
             grad_i=abs(gradi(i,params,currCirc,hamiltonian,estimator)[len(hamiltonian)-1]).item()
             M[i]=beta1*M[i]+(1-beta1)*grad_i
-            heapq.heappush(accumulator, (M[i],inds[i]))
+            heapq.heappush(accumulator, (-M[i],inds[i]))
         ### Momentum layer construction
         # print(accumulator)
         keep = max(2, n // 2)

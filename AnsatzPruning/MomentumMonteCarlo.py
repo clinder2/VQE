@@ -107,7 +107,7 @@ def momentum_sa_merged(params:list, inds:list, ansatz:QuantumCircuit,
         for i in range(len(params)):
             grad_i = abs(gradi(i, params, currCirc, hamiltonian, estimator)).item()
             M[i] = beta1 * M[i] + (1-beta1) * grad_i
-            heapq.heappush(accumulator, (M[i], inds[i]))
+            heapq.heappush(accumulator, (-M[i], inds[i]))
 
         # Construct momentum layer and append it to circuit
         keep = max(2, num_qubits // 2) # keep = how many qubits with highest momentums we use
