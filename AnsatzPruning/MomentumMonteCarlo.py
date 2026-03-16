@@ -83,7 +83,7 @@ def momentum_sa_phased(params:list, inds:list, ansatz:QuantumCircuit,
 
     cost_final = cost_func(optimized_params, optimized_ansatz, observables, estimator)
     energy_final = cost_final[-1] # Last element in the list is the energy
-    print("Energy after MomentumBuilder and Monte Carlo: ", energy_final)
+    print("Energy after MomentumBuilder and Simulated Annealing (SA), two-phased: ", energy_final)
     
     return optimized_ansatz, optimized_params
 
@@ -110,7 +110,8 @@ def momentum_sa_merged(params:list, inds:list, ansatz:QuantumCircuit,
             heapq.heappush(accumulator, (M[i], inds[i]))
 
         # Construct momentum layer and append it to circuit
-        momentum_layer, new_params, new_inds = momen_layer(iter, num_qubits, accumulator)
+        keep = max(2, num_qubits // 2) # keep = how many qubits with highest momentums we use
+        momentum_layer, new_params, new_inds = momen_layer(iter, num_qubits, accumulator, keep=keep)
         params = params + new_params
         inds = inds + new_inds
         M = np.concatenate((M, len(new_params)*[0]))
@@ -134,38 +135,53 @@ def momentum_sa_merged(params:list, inds:list, ansatz:QuantumCircuit,
 
 
 if __name__ == "__main__":
-    H = SparsePauliOp.from_list([("ZIZZ", 1), ("ZZII", 3), ("IZZI", 1), ("IIZZ", 1)])
+    # 10 qubits:
+    H = SparsePauliOp.from_list([("ZZIZZZIIIZ", 1), ("IIZZIIZIZI", 1), ("ZIZIZIZZII", 1), ("IIIZZZIZZZ", 1), 
+                                 ("ZZIZZIZIII", 1), ("IIIZZIIIZZ", 1), ("IZZIZIZIIZ", 1), ("IZZZIZZIIZ", 1), 
+                                 ("ZIIIIZZIIZ", 1), ("IIZZIIZZZI", 1)])
     
     angle1 = Parameter("angle1")
     angle2 = Parameter("angle2")
     angle3 = Parameter("angle3")
     angle4 = Parameter("angle4")
+    angle5 = Parameter("angle5")
+    angle6 = Parameter("angle6")
+    angle7 = Parameter("angle7")
+    angle8 = Parameter("angle8")
+    angle9 = Parameter("angle9")
+    angle10 = Parameter("angle10")
     
-    circuit = QuantumCircuit(4)
-    ansatz = QuantumCircuit(4)
+    circuit = QuantumCircuit(10)
+    ansatz = QuantumCircuit(10)
 
     ansatz.rx(angle1, 0)
     ansatz.rx(angle2, 1)
     ansatz.rx(angle3, 2)
     ansatz.rx(angle4, 3)
+    ansatz.rx(angle5, 4)
+    ansatz.rx(angle6, 5)
+    ansatz.rx(angle7, 6)
+    ansatz.rx(angle8, 7)
+    ansatz.rx(angle9, 8)
+    ansatz.rx(angle10, 9)
 
     # ansatz.draw(output="mpl")
 
     # Run MomentumBuilder for comparison
     observables = [*H.paulis,H]
-    final_circuit_MB = MomentumBuilder.MomentumBuilder([1,1,1,1], [0,1,2,3], ansatz, circuit, observables, Estimator(), 0.9, 0.99)
+    final_circuit_MB = MomentumBuilder.MomentumBuilder([1,1,1,1,1,1,1,1,1,1], [0,1,2,3,4,5,6,7,8,9], ansatz, circuit, observables, Estimator(), 0.9, 0.99)
     final_circuit_MB.draw(output="mpl")
 
-    final_circuit_MMC, final_params = momentum_sa_phased([1,1,1,1], [0,1,2,3], ansatz, circuit, H, Estimator(),
+    final_circuit_MMC, final_params = momentum_sa_phased([1,1,1,1,1,1,1,1,1,1], [0,1,2,3,4,5,6,7,8,9], ansatz, circuit, H, Estimator(),
         beta1=0.9, beta2=0.99, iters=2, optimization_runs=100
     )
     final_circuit_MMC.draw(output="mpl")
 
-    final_circuit_MSA = momentum_sa_merged([1,1,1,1], [0,1,2,3], ansatz, circuit, H, Estimator(),
+    final_circuit_MSA = momentum_sa_merged([1,1,1,1,1,1,1,1,1,1], [0,1,2,3,4,5,6,7,8,9], ansatz, circuit, H, Estimator(),
         beta1=0.9, beta2=0.99, iters=2, optimization_runs=100
     )
     final_circuit_MSA.draw(output="mpl")
     
     # print(f"Optimization complete. Final parameters: {final_params}")
-    # plt.show()
+    plt.show()
 

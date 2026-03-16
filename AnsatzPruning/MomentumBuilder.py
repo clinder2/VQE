@@ -48,7 +48,8 @@ def MomentumBuilder(params:list, inds:list, ansatz:QuantumCircuit,
             heapq.heappush(accumulator, (M[i],inds[i]))
         ### Momentum layer construction
         # print(accumulator)
-        mLayer,nparams,ninds=momen_layer(it,n, accumulator)
+        keep = max(2, n // 2)
+        mLayer,nparams,ninds=momen_layer(it,n, accumulator, keep=keep)
         params=params+nparams
         inds=inds+ninds
         M=np.concatenate((M,len(nparams)*[0]))
