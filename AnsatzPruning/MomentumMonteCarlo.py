@@ -85,7 +85,7 @@ def momentum_sa_phased(params:list, inds:list, ansatz:QuantumCircuit,
     energy_final = cost_final[-1] # Last element in the list is the energy
     print("Energy after MomentumBuilder and Simulated Annealing (SA), two-phased: ", energy_final)
     
-    return optimized_ansatz, optimized_params
+    return optimized_ansatz, optimized_params, energy_final
 
 def momentum_sa_merged(params:list, inds:list, ansatz:QuantumCircuit,
                          circuit:QuantumCircuit, hamiltonian:SparsePauliOp,
@@ -131,7 +131,7 @@ def momentum_sa_merged(params:list, inds:list, ansatz:QuantumCircuit,
     energy_final = cost_final[-1] # Last element in the list is the energy
     print("Energy after merged MB and SA: ", energy_final)
     
-    return circuit
+    return circuit, params, energy_final
 
 
 if __name__ == "__main__":
@@ -167,20 +167,35 @@ if __name__ == "__main__":
 
     # ansatz.draw(output="mpl")
 
-    # Run MomentumBuilder for comparison
+    # Compare different builders
+    # MomentumBuilder
     observables = [*H.paulis,H]
     final_circuit_MB = MomentumBuilder.MomentumBuilder([1,1,1,1,1,1,1,1,1,1], [0,1,2,3,4,5,6,7,8,9], ansatz, circuit, observables, Estimator(), 0.9, 0.99)
     final_circuit_MB.draw(output="mpl")
 
-    final_circuit_MMC, final_params = momentum_sa_phased([1,1,1,1,1,1,1,1,1,1], [0,1,2,3,4,5,6,7,8,9], ansatz, circuit, H, Estimator(),
+    # MomentumBuilder + SA, phased
+    final_circuit_MMC, params_MMC, energy_MMC = momentum_sa_phased([1,1,1,1,1,1,1,1,1,1], [0,1,2,3,4,5,6,7,8,9], ansatz, circuit, H, Estimator(),
         beta1=0.9, beta2=0.99, iters=2, optimization_runs=100
     )
     final_circuit_MMC.draw(output="mpl")
 
-    final_circuit_MSA = momentum_sa_merged([1,1,1,1,1,1,1,1,1,1], [0,1,2,3,4,5,6,7,8,9], ansatz, circuit, H, Estimator(),
+    # MomentumBuilder + SA, merged
+    final_circuit_MSA, params_MSA, energy_MSA = momentum_sa_merged([1,1,1,1,1,1,1,1,1,1], [0,1,2,3,4,5,6,7,8,9], ansatz, circuit, H, Estimator(),
         beta1=0.9, beta2=0.99, iters=2, optimization_runs=100
     )
     final_circuit_MSA.draw(output="mpl")
+
+
+    # # AdaptVQE
+    # paulis = ["XI", "YI", "IX", "IY", "XX", "YY", "ZZ"]
+    # ansatz = EvolvedOperatorAnsatz(operators=paulis)
+    # vqe = VQE(StatevectorEstimator(), ansatz, SLSQP())
+    # adapt_vqe = AdaptVQE(vqe)
+    # # paulis = ["XI", "YI", "IX", "IY", "XX", "YY", "ZZ"]
+    # # vqe = VQE(StatevectorEstimator(), QuantumCircuit(1), SLSQP())
+    # # adapt_vqe = AdaptVQE(vqe, operators=paulis)
+    # eigenvalue, _ = adapt_vqe.compute_minimum_eigenvalue(H)
+    # print(f"Energy after AdaptVQE: {eigenvalue}")
     
     # print(f"Optimization complete. Final parameters: {final_params}")
     plt.show()
