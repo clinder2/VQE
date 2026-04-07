@@ -80,6 +80,8 @@ def MomentumBuilder(params:list, inds:list, ansatz:QuantumCircuit,
     # x = minimize(cost_func, params, args=(circuit, H, estimator), method="COBYLA")
     # print(x)
 
+    if return_ansatz_and_params:
+        return circuit, params
     return circuit
 
 if __name__ == "__main__":
