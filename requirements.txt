@@ -16,6 +16,7 @@ pyparsing
 python-dateutil
 pytz
 qiskit
+qiskit-algorithms
 qiskit-aer
 rustworkx
 scipy

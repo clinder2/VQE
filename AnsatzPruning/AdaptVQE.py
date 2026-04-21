@@ -1,227 +1,242 @@
 """
-AdaptVQE.py
+Utilities for running ADAPT-VQE benchmarks with Qiskit.
 
-Standalone ADAPT-VQE benchmark using the same 10-qubit Hamiltonian as the
-MomentumBuilder + simulated annealing script.
+This module follows the documented Qiskit Algorithms pattern:
 
-This follows the IBM/Qiskit AdaptVQE pattern from the provided PDF:
-    vqe = VQE(StatevectorEstimator(), QuantumCircuit(...), optimizer)
-    adapt_vqe = AdaptVQE(vqe, operators=pool)
+    vqe = VQE(StatevectorEstimator(), QuantumCircuit(num_qubits), optimizer)
+    adapt_vqe = AdaptVQE(vqe, operators=pool, initial_state=reference_state)
     result = adapt_vqe.compute_minimum_eigenvalue(hamiltonian)
 
-The PDF also notes that AdaptVQE returns an AdaptVQEResult containing runtime
-information such as number of iterations, termination criterion, and final
-maximum gradient. :contentReference[oaicite:0]{index=0} :contentReference[oaicite:1]{index=1}
+When ``operators`` is supplied, ADAPT-VQE builds the evolved-operator ansatz
+internally from that pool. The placeholder ansatz passed to ``VQE`` is only
+used to satisfy the solver interface.
 """
 
 from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
-from qiskit.quantum_info import SparsePauliOp
 from qiskit.primitives import StatevectorEstimator
+from qiskit.quantum_info import SparsePauliOp
 
-from qiskit_algorithms.minimum_eigensolvers import AdaptVQE, VQE
-from qiskit_algorithms.optimizers import SLSQP
+try:
+    from qiskit_algorithms.minimum_eigensolvers import AdaptVQE, VQE
+    from qiskit_algorithms.optimizers import SLSQP
+except ImportError as exc:  # pragma: no cover - depends on local environment
+    AdaptVQE = None  # type: ignore[assignment]
+    VQE = None  # type: ignore[assignment]
+    SLSQP = None  # type: ignore[assignment]
+    _QISKIT_ALGORITHMS_IMPORT_ERROR = exc
+else:
+    _QISKIT_ALGORITHMS_IMPORT_ERROR = None
+
+
+def ensure_qiskit_algorithms_available() -> None:
+    """Raise a clear error if the standalone qiskit-algorithms package is missing."""
+    if _QISKIT_ALGORITHMS_IMPORT_ERROR is not None:
+        raise ImportError(
+            "ADAPT-VQE requires the standalone `qiskit-algorithms` package. "
+            "Install it with `pip install qiskit-algorithms`."
+        ) from _QISKIT_ALGORITHMS_IMPORT_ERROR
 
 
 def build_hamiltonian() -> SparsePauliOp:
-    """Same Hamiltonian as in your __main__."""
+    """Return the 10-qubit demo Hamiltonian used by this module's CLI example."""
     return SparsePauliOp.from_list(
         [
-            ("ZZIZZZIIIZ", 1),
-            ("IIZZIIZIZI", 1),
-            ("ZIZIZIZZII", 1),
-            ("IIIZZZIZZZ", 1),
-            ("ZZIZZIZIII", 1),
-            ("IIIZZIIIZZ", 1),
-            ("IZZIZIZIIZ", 1),
-            ("IZZZIZZIIZ", 1),
-            ("ZIIIIZZIIZ", 1),
-            ("IIZZIIZZZI", 1),
+            ("ZZIZZZIIIZ", 1.0),
+            ("IIZZIIZIZI", 1.0),
+            ("ZIZIZIZZII", 1.0),
+            ("IIIZZZIZZZ", 1.0),
+            ("ZZIZZIZIII", 1.0),
+            ("IIIZZIIIZZ", 1.0),
+            ("IZZIZIZIIZ", 1.0),
+            ("IZZZIZZIIZ", 1.0),
+            ("ZIIIIZZIIZ", 1.0),
+            ("IIZZIIZZZI", 1.0),
         ]
     )
 
 
-def build_reference_ansatz() -> QuantumCircuit:
-    """
-    Matches the reference ansatz structure in your script:
-    one RX parameter on each qubit.
-    """
-    qc = QuantumCircuit(10)
-    angles = [Parameter(f"angle{i}") for i in range(1, 11)]
-    for q, theta in enumerate(angles):
-        qc.rx(theta, q)
+def build_reference_ansatz(num_qubits: int = 10) -> QuantumCircuit:
+    """Return a parameterized RX reference ansatz with one angle per qubit."""
+    qc = QuantumCircuit(num_qubits)
+    angles = [Parameter(f"angle{i}") for i in range(num_qubits)]
+    for qubit, theta in enumerate(angles):
+        qc.rx(theta, qubit)
     return qc
 
 
-def build_operator_pool(num_qubits: int) -> list[SparsePauliOp]:
+def build_reference_state(num_qubits: int, angle: float = 1.0) -> QuantumCircuit:
     """
-    Operator pool for AdaptVQE.
+    Return a parameter-free RX product state.
 
-    For this Hamiltonian (sum of Z-only strings), a pure Z pool is usually a poor
-    benchmark because exp(-i * theta * Z) mostly adds phases and may not change
-    the expectation meaningfully from simple reference states.
-
-    A single-qubit Y pool is a simple, effective choice because e^{-i theta Y}
-    rotates populations and can change expectations of Z-string Hamiltonians.
+    This mirrors the Set Cover benchmark's initial parameter choice of all ones.
     """
-    pool = []
-    for pauli in ["X", "Y"]:
-        for q in range(num_qubits):
+    reference = QuantumCircuit(num_qubits)
+    for qubit in range(num_qubits):
+        reference.rx(angle, qubit)
+    return reference
+
+
+def build_operator_pool(
+    num_qubits: int,
+    paulis: Sequence[str] = ("X", "Y"),
+) -> list[SparsePauliOp]:
+    """
+    Build a simple single-qubit operator pool for ADAPT-VQE.
+
+    For the diagonal Z-string Hamiltonians used in this repository, a pure Z pool
+    is not useful because it largely only changes phases. Single-qubit X/Y
+    generators can change the measurement probabilities of computational-basis
+    states and are a reasonable generic pool for these benchmarks.
+    """
+    pool: list[SparsePauliOp] = []
+    for pauli in paulis:
+        if len(pauli) != 1:
+            raise ValueError(f"Expected single-qubit Pauli labels, got {pauli!r}.")
+        for qubit in range(num_qubits):
             label = ["I"] * num_qubits
-            label[q] = pauli
+            label[qubit] = pauli
             pool.append(SparsePauliOp.from_list([("".join(label), 1.0)]))
     return pool
 
+
 def exact_ground_energy(hamiltonian: SparsePauliOp) -> float:
-    """
-    Since the Hamiltonian is diagonal in the computational basis (Z strings only),
-    its exact ground energy can be obtained directly from the diagonal.
-    """
-    mat = hamiltonian.to_matrix(sparse=False)
-    eigvals = np.linalg.eigvalsh(mat)
-    return float(np.min(eigvals))
+    """Return the exact ground-state energy from dense diagonalization."""
+    matrix = hamiltonian.to_matrix(sparse=False)
+    eigenvalues = np.linalg.eigvalsh(matrix)
+    return float(np.min(np.real_if_close(eigenvalues)))
+
+
+def extract_result_metrics(result: Any) -> dict[str, Any]:
+    """Extract a small, benchmark-friendly metrics dictionary from an ADAPT result."""
+    eigenvalue = getattr(result, "eigenvalue", None)
+    optimal_value = getattr(result, "optimal_value", None)
+    energy = float(np.real(eigenvalue if eigenvalue is not None else optimal_value))
+
+    optimal_circuit = getattr(result, "optimal_circuit", None)
+    termination_criterion = getattr(result, "termination_criterion", None)
+    termination_text = getattr(termination_criterion, "value", termination_criterion)
+
+    history = getattr(result, "eigenvalue_history", None)
+    if history is not None:
+        history = [float(np.real_if_close(value)) for value in history]
+
+    return {
+        "energy": energy,
+        "num_iterations": getattr(result, "num_iterations", None),
+        "final_max_gradient": getattr(result, "final_max_gradient", None),
+        "termination_criterion": termination_text,
+        "cost_function_evals": getattr(result, "cost_function_evals", None),
+        "optimizer_time": getattr(result, "optimizer_time", None),
+        "optimal_point": getattr(result, "optimal_point", None),
+        "optimal_parameters": getattr(result, "optimal_parameters", None),
+        "num_parameters": (
+            optimal_circuit.num_parameters if optimal_circuit is not None else None
+        ),
+        "ansatz_depth": optimal_circuit.depth() if optimal_circuit is not None else None,
+        "eigenvalue_history": history,
+        "optimal_circuit": optimal_circuit,
+    }
 
 
 def run_adapt_vqe(
     hamiltonian: SparsePauliOp,
-    initial_state: QuantumCircuit,
-    operator_pool: list[SparsePauliOp],
+    initial_state: QuantumCircuit | None = None,
+    operator_pool: Sequence[SparsePauliOp] | None = None,
     max_iterations: int = 25,
     gradient_threshold: float = 1e-5,
     eigenvalue_threshold: float = 1e-8,
+    optimizer_maxiter: int = 500,
 ):
     """
-    Run IBM/Qiskit AdaptVQE using a trivial base VQE ansatz and an explicit pool.
-    This is the API pattern described in the PDF. :contentReference[oaicite:2]{index=2}
-    """
-    num_qubits = hamiltonian.num_qubits
+    Run Qiskit's ADAPT-VQE against a Hamiltonian using an explicit operator pool.
 
-    # Base ansatz is a trivial circuit because AdaptVQE will build the ansatz
-    # from the supplied operator pool.
-    base_ansatz = QuantumCircuit(num_qubits)
+    Args:
+        hamiltonian: target Hamiltonian.
+        initial_state: optional parameter-free circuit prepended to the ADAPT ansatz.
+        operator_pool: explicit operator pool. If omitted, a single-qubit X/Y pool
+            is generated automatically.
+        max_iterations: maximum ADAPT growth iterations.
+        gradient_threshold: ADAPT convergence threshold on the maximum gradient.
+        eigenvalue_threshold: ADAPT convergence threshold on eigenvalue change.
+        optimizer_maxiter: maximum iterations for the inner SLSQP solve.
+    """
+    ensure_qiskit_algorithms_available()
+
+    num_qubits = hamiltonian.num_qubits
+    if initial_state is None:
+        initial_state = build_reference_state(num_qubits)
+    if operator_pool is None:
+        operator_pool = build_operator_pool(num_qubits)
 
     estimator = StatevectorEstimator()
-    optimizer = SLSQP(maxiter=500)
+    optimizer = SLSQP(maxiter=optimizer_maxiter)
 
-    vqe = VQE(
+    # The solver ansatz is intentionally trivial because ADAPT-VQE constructs
+    # the evolved-operator ansatz itself when `operators` is provided.
+    solver = VQE(
         estimator=estimator,
-        ansatz=base_ansatz,
+        ansatz=QuantumCircuit(num_qubits),
         optimizer=optimizer,
     )
 
     adapt_vqe = AdaptVQE(
-        solver=vqe,
-        operators=operator_pool,
+        solver=solver,
+        operators=list(operator_pool),
         gradient_threshold=gradient_threshold,
         eigenvalue_threshold=eigenvalue_threshold,
         max_iterations=max_iterations,
         initial_state=initial_state,
     )
 
-    result = adapt_vqe.compute_minimum_eigenvalue(hamiltonian)
-    return result
+    return adapt_vqe.compute_minimum_eigenvalue(hamiltonian)
 
 
-def safe_getattr(obj, name: str, default=None):
-    return getattr(obj, name, default)
-
-
-def main():
-    H = build_hamiltonian()
-    reference_rx_ansatz = build_reference_ansatz()
-    operator_pool = build_operator_pool(H.num_qubits)
-
-    print("=" * 80)
-    print("ADAPT-VQE benchmark")
-    print("=" * 80)
-    print(f"Number of qubits: {H.num_qubits}")
-    print(f"Reference RX ansatz parameter count (from your script): {reference_rx_ansatz.num_parameters}")
-    print(f"ADAPT operator pool size: {len(operator_pool)}")
-    print()
-
-    exact_e0 = exact_ground_energy(H)
-    print(f"Exact ground energy (classical diagonalization): {exact_e0}")
-    print()
-
-    reference_rx_ansatz = build_reference_ansatz()
-    rx_initial_params = np.ones(reference_rx_ansatz.num_parameters)
-    initial_state = reference_rx_ansatz.assign_parameters(rx_initial_params)
+def main() -> None:
+    """Run a small command-line demo on the built-in 10-qubit Hamiltonian."""
+    hamiltonian = build_hamiltonian()
+    exact_energy = exact_ground_energy(hamiltonian)
 
     result = run_adapt_vqe(
-        hamiltonian=H,
-        initial_state=initial_state,
-        operator_pool=operator_pool,
+        hamiltonian=hamiltonian,
+        initial_state=build_reference_state(hamiltonian.num_qubits, angle=1.0),
+        operator_pool=build_operator_pool(hamiltonian.num_qubits),
         max_iterations=25,
         gradient_threshold=1e-8,
         eigenvalue_threshold=1e-10,
     )
+    metrics = extract_result_metrics(result)
 
     print("=" * 80)
-    print("ADAPT-VQE result")
+    print("ADAPT-VQE benchmark")
     print("=" * 80)
-
-    eigenvalue = safe_getattr(result, "eigenvalue", None)
-    optimal_value = safe_getattr(result, "optimal_value", None)
-    final_energy = float(np.real(eigenvalue if eigenvalue is not None else optimal_value))
-    
-
-    print(f"Final ADAPT-VQE energy: {final_energy}")
-    print(f"Energy error vs exact:   {final_energy - exact_e0}")
+    print(f"Number of qubits: {hamiltonian.num_qubits}")
+    print(f"Operator pool size: {len(build_operator_pool(hamiltonian.num_qubits))}")
+    print(f"Exact ground energy: {exact_energy}")
+    print(f"Final ADAPT-VQE energy: {metrics['energy']}")
+    print(f"Energy error vs exact: {metrics['energy'] - exact_energy}")
     print()
-
-    # AdaptVQEResult-specific fields mentioned in the docs/PDF.
     print("ADAPT metadata:")
-    print(f"  num_iterations:        {safe_getattr(result, 'num_iterations', 'N/A')}")
-    print(f"  final_max_gradient:    {safe_getattr(result, 'final_max_gradient', 'N/A')}")
-    print(f"  termination_criterion: {safe_getattr(result, 'termination_criterion', 'N/A')}")
-    print()
+    print(f"  num_iterations:        {metrics['num_iterations']}")
+    print(f"  final_max_gradient:    {metrics['final_max_gradient']}")
+    print(f"  termination_criterion: {metrics['termination_criterion']}")
+    print(f"  cost_function_evals:   {metrics['cost_function_evals']}")
+    print(f"  optimizer_time:        {metrics['optimizer_time']}")
+    print(f"  num_parameters:        {metrics['num_parameters']}")
+    print(f"  ansatz_depth:          {metrics['ansatz_depth']}")
 
-    # VQE-like fields.
-    print("Optimization metadata:")
-    print(f"  optimal_point:         {safe_getattr(result, 'optimal_point', 'N/A')}")
-    print(f"  optimal_parameters:    {safe_getattr(result, 'optimal_parameters', 'N/A')}")
-    print(f"  cost_function_evals:   {safe_getattr(result, 'cost_function_evals', 'N/A')}")
-    print(f"  optimizer_time:        {safe_getattr(result, 'optimizer_time', 'N/A')}")
-    print()
-
-    # Some versions expose a history.
-    history = safe_getattr(result, "eigenvalue_history", None)
-    if history is not None:
-        print("Eigenvalue history:")
-        for i, val in enumerate(history, start=1):
-            print(f"  iter {i:2d}: {np.real(val)}")
+    optimal_circuit = metrics["optimal_circuit"]
+    if optimal_circuit is not None:
         print()
-
-    ansatz = safe_getattr(result, "optimal_circuit", None)
-    if ansatz is None:
-        ansatz = safe_getattr(result, "ansatz", None)
-
-    if ansatz is not None:
         print("Final ADAPT ansatz:")
-        print(ansatz.draw(output="text"))
-        print(f"Final ansatz parameter count: {ansatz.num_parameters}")
-    else:
-        print("Final ADAPT ansatz: N/A")
-
-    print()
-    print("=" * 80)
-    print("Notes")
-    print("=" * 80)
-    print(
-        "This is a clean benchmark file for comparison against your MomentumBuilder "
-        "+ simulated annealing pipeline on the same Hamiltonian."
-    )
-    print(
-        "If you want a closer apples-to-apples comparison, you can also compare:\n"
-        "  1) final energy\n"
-        "  2) number of variational parameters\n"
-        "  3) wall-clock runtime\n"
-        "  4) number of optimizer evaluations"
-    )
+        print(optimal_circuit.draw(output="text"))
 
 
 if __name__ == "__main__":
